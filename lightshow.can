@@ -1,0 +1,245 @@
+/*@!Encoding:1252*/
+includes
+{
+}
+
+variables
+{
+  const NUMBER_OF_LED_CONTROL_PARAMETERS = 6, NUMBER_OF_LEDS = 48, MAX_ROWS_IN_CSV = 512;
+  dword csvFileHandle = 0;
+  char csvFilePath[1025], csvRowData[1000000], csvString[11] = "";
+  int indexOfFirstOccurringComma, indexOfNextOccurringComma, csvStringLength, currrentFrame;
+  word ledSignalIndex, frameSignalIndex, csvColumnIndex, csvRowIndex, numberOfActiveLeds, ledsParametersUpdates[NUMBER_OF_LED_CONTROL_PARAMETERS * NUMBER_OF_LEDS];
+  byte ledActivations[NUMBER_OF_LEDS];
+  struct ledSignalParameters
+  {
+    word sendUpdateSignalAtTimeInMs, startAtTimeInMs, stopAtTimeInMs;
+    byte presetSequenceModeId, initialBrightnessPercentage, finalBrightnessPercentage;
+  };
+  struct ledSignalParameters allLedsUpdateSignals[MAX_ROWS_IN_CSV][NUMBER_OF_LEDS];
+  msTimer ledsUpdateSignalsTimer;
+}
+
+on timer ledsUpdateSignalsTimer
+{
+  if(frameSignalIndex < elCount(allLedsUpdateSignals))
+  {
+    sendLedsUpdateSignals();
+    frameSignalIndex++;
+  }
+  else
+  {
+    frameSignalIndex = 0;
+    stopLedsUpdateSignalsTimer();
+  }
+}
+
+on sysvar_update LightShow::OpenButton
+{
+  if(@this)
+  {
+    @this = 0;
+    openCsvFile();
+    if(csvFileHandle != 0) { extractCsvData(); }
+  }
+}
+
+//left LEDs
+on sysvar_update LightShow::LeGroup 
+{
+  int ledIndex;
+  for(ledIndex = 0 ; ledIndex < NUMBER_OF_LEDS; ledIndex+=2)
+  {
+    @LightShow::GrupMaping[ledIndex] = @LightShow::LeGroup;
+  }
+}
+
+//right LEDs
+on sysvar_update LightShow::RiGroup 
+{
+  int ledIndex;
+  for(ledIndex = 1 ; ledIndex < NUMBER_OF_LEDS ; ledIndex+=2)
+  {
+    @LightShow::GrupMaping[ledIndex] = @LightShow::RiGroup;
+  }
+}
+
+void openCsvFile()
+{
+  sysGetVariableString(sysvar::LightShow::LightShowFile, csvFilePath, elCount(csvFilePath));
+  if((strncmp(csvFilePath, "" , elCount(csvFilePath)) == 0) || (strstr(csvFilePath, ".csv") == -1))
+  {
+    displayStatusMessage(1, "Invalid file selected to Load",0);
+  }
+  else
+  {
+    csvFileHandle = openCsvFileRead(csvFilePath, 0);
+    if (csvFileHandle == 0)
+    {
+      msgBeep(2); //error
+      displayStatusMessage(1, "CSV file cannot be opened for read access.", 1);
+    }
+    else { displayStatusMessage(0, "CSV file Opened.", 1); } 
+  }
+}
+
+void closeCsvFile(dword csvFileHandle)
+{
+  fileClose(csvFileHandle);
+  displayStatusMessage(0, "File End. Closing File", 1);
+  csvFileHandle = 0;
+}
+
+void extractCsvData()
+{
+  currrentFrame = 0;
+
+  for(csvRowIndex = 0 ; csvRowIndex < MAX_ROWS_IN_CSV + 2 ; csvRowIndex++)
+  {
+    fileGetString(csvRowData, elcount(csvRowData), csvFileHandle);
+    if(!csvRowData) { break; }
+    
+    if (strstr(toLower(csvRowData, csvRowData, elcount(csvRowData)), "value") != -1) 
+    {
+      indexOfFirstOccurringComma = strstr(csvRowData, ",");
+      indexOfNextOccurringComma = strstr_off(csvRowData, indexOfFirstOccurringComma + 1, ",");
+
+      for(csvColumnIndex = 1 ; csvColumnIndex < NUMBER_OF_LED_CONTROL_PARAMETERS * NUMBER_OF_LEDS + 2 ; csvColumnIndex++)
+      {
+        str_replace(csvString, csvString, "0");
+        
+        csvStringLength = indexOfNextOccurringComma - indexOfFirstOccurringComma;
+        substr_cpy(csvString, csvRowData, indexOfFirstOccurringComma + 1, csvStringLength - 1, elcount(csvString));
+
+        if(csvColumnIndex < NUMBER_OF_LED_CONTROL_PARAMETER * NUMBER_OF_LEDS + 1) 
+        {
+          ledsParametersUpdates[csvColumnIndex - 1] = atol(csvString);
+        }
+
+        indexOfFirstOccurringComma = indexOfNextOccurringComma;   
+      }
+
+      buildLedsUpdateSignalsPerFrame(currrentFrame);
+      currrentFrame++;
+    }
+  }
+
+  closeCsvFile(csvFileHandle);
+  startLedsUpdateSignalsTimer();
+}
+
+void buildLedsUpdateSignalsPerFrame(word currrentFrame)
+{
+  word ledIndex;
+  for(ledIndex = 0 ; ledIndex < NUMBER_OF_LEDS ; ledIndex++)
+  {
+    allLedsUpdateSignals[currrentFrame][ledIndex].sendUpdateSignalAtTimeInMs = ledsParametersUpdates[NUMBER_OF_LED_CONTROL_PARAMETERS * ledIndex + 0];
+    allLedsUpdateSignals[currrentFrame][ledIndex].presetSequenceModeId = ledsParametersUpdates[NUMBER_OF_LED_CONTROL_PARAMETERS * ledIndex + 1];
+    allLedsUpdateSignals[currrentFrame][ledIndex].initialBrightnessPercentage = ledsParametersUpdates[NUMBER_OF_LED_CONTROL_PARAMETERS * ledIndex + 2];
+    allLedsUpdateSignals[currrentFrame][ledIndex].finalBrightnessPercentage = ledsParametersUpdates[NUMBER_OF_LED_CONTROL_PARAMETERS * ledIndex + 3];
+    allLedsUpdateSignals[currrentFrame][ledIndex].startAtTimeInMs = ledsParametersUpdates[NUMBER_OF_LED_CONTROL_PARAMETERS * ledIndex + 4];
+    allLedsUpdateSignals[currrentFrame][ledIndex].stopAtTimeInMs = ledsParametersUpdates[NUMBER_OF_LED_CONTROL_PARAMETERS * ledIndex + 5];
+  }
+}
+
+void startLedsUpdateSignalsTimer()
+{
+  word ledIndex;
+  if(@LightShow::Auto_Download)
+  {
+    setSignal(ExtrLiShowFileTxReq_UB, 1);
+    setSignal(ExtrLiShowFileTxReq, 1);
+  }
+  for(ledIndex = 0; ledIndex < NUMBER_OF_LEDS ; ledIndex++)
+  {
+    ledActivations[ledIndex] = @LightShow::GrupMaping[ledIndex];
+  }
+  frameSignalIndex = 0;
+  ledSignalIndex = 0;
+  setTimerCyclic(ledsUpdateSignalsTimer, @sysvar::LightShow::Cyclic_send);
+}
+
+void sendLedsUpdateSignals()
+{
+  char ledSignalname[100] = "";
+  char ledPosition[3] = "";
+
+  for(ledSignalIndex = 0 ; ledSignalIndex < NUMBER_OF_LEDS ; ledSignalIndex++)
+  {
+    if(ledSignalIndex % 2 == 0)
+    {
+      snprintf(ledPosition, elcount(ledPosition), "Le");
+    }
+    else
+    {
+      snprintf(ledPosition, elcount(ledPosition), "Ri");
+    }
+    
+    if(ledActivations[ledSignalIndex] == 1)
+    {
+      snprintf(ledSignalname, elcount(ledSignalname), "DwnLoadDynLtgPrmForFrnt%sGrp%d_UB", ledPosition, (ledSignalIndex / 2) + 1);
+      setSignal(ledSignalname, 1);
+
+      snprintf(ledSignalname, elcount(ledSignalname), "DwnLoadDynLtgPrmForFrnt%sGrp%dMode1", ledPosition, (ledSignalIndex / 2) + 1);
+      setSignal(ledSignalname, allLedsUpdateSignals[frameSignalIndex][ledSignalIndex].presetSequenceModeId);
+
+      snprintf(ledSignalname, elcount(ledSignalname), "DwnLoadDynLtgPrmForFrnt%sGrp%dLowBrightness", ledPosition, (ledSignalIndex / 2) + 1);
+      setSignal(ledSignalname, allLedsUpdateSignals[frameSignalIndex][ledSignalIndex].initialBrightnessPercentage);
+
+      snprintf(ledSignalname, elcount(ledSignalname), "DwnLoadDynLtgPrmForFrnt%sGrp%dHighBrightness", ledPosition, (ledSignalIndex / 2) + 1);
+      setSignal(ledSignalname, allLedsUpdateSignals[frameSignalIndex][ledSignalIndex].finalBrightnessPercentage);
+
+      snprintf(ledSignalname, elcount(ledSignalname), "DwnLoadDynLtgPrmForFrnt%sGrp%dOffsetTime", ledPosition, (ledSignalIndex / 2) + 1);
+      setSignal(ledSignalname, allLedsUpdateSignals[frameSignalIndex][ledSignalIndex].startAtTimeInMs);
+
+      snprintf(ledSignalname, elcount(ledSignalname), "DwnLoadDynLtgPrmForFrnt%sGrp%dContinueTime", ledPosition, (ledSignalIndex / 2) + 1);
+      setSignal(ledSignalname, allLedsUpdateSignals[frameSignalIndex][ledSignalIndex].stopAtTimeInMs);
+
+      snprintf(ledSignalname, elcount(ledSignalname), "DwnLoadDynLtgPrmForFrnt%sGrp%dTimestamp", ledPosition, (ledSignalIndex / 2) + 1);
+      setSignal(ledSignalname, allLedsUpdateSignals[frameSignalIndex][ledSignalIndex].sendUpdateSignalAtTimeInMs);
+            
+      if((allLedsUpdateSignals[frameSignalIndex][ledSignalIndex].presetSequenceModeId == 0xFF) && 
+        (allLedsUpdateSignals[frameSignalIndex][ledSignalIndex].initialBrightnessPercentage == 0xFF) && 
+        (allLedsUpdateSignals[frameSignalIndex][ledSignalIndex].finalBrightnessPercentage == 0xFF) && 
+        (allLedsUpdateSignals[frameSignalIndex][ledSignalIndex].startAtTimeInMs == 0xFFFF) && 
+        (allLedsUpdateSignals[frameSignalIndex][ledSignalIndex].stopAtTimeInMs == 0xFFFF) && 
+        (allLedsUpdateSignals[frameSignalIndex][ledSignalIndex].sendUpdateSignalAtTimeInMs == 0xFFFF) &&
+        (ledSignalIndex < NUMBER_OF_LEDS))
+      {
+        ledActivations[ledSignalIndex] = 0;
+      }
+    }
+  }
+  
+  numberOfActiveLeds = 0;
+  for(csvColumnIndex = 0 ; csvColumnIndex < NUMBER_OF_LEDS ; csvColumnIndex++)
+  {
+    numberOfActiveLeds = numberOfActiveLeds + ledActivations[csvColumnIndex];
+  }
+  if(numberOfActiveLeds == 0) { frameSignalIndex = MAX_ROWS_IN_CSV; }
+}
+
+void stopLedsUpdateSignalsTimer()
+{
+  cancelTimer(ledsUpdateSignalsTimer);
+  if(@LightShow::Auto_Download)
+  {
+    setSignal(ExtrLiShowFileTxReq_UB ,1);
+    setSignal(ExtrLiShowFileTxReq ,0);
+  }
+  displayStatusMessage(0, "Light Show Messages Sent", 0);
+}
+
+void displayStatusMessage(byte errorFlag, char displayMessage[], byte writeToWindow)
+{
+  if(errorFlag) 
+  {
+    setControlBackColor("LightShow", "StatusMessage", makeRGB(255, 108, 108));
+  }
+  else
+  {
+    setControlBackColor("LightShow", "StatusMessage", makeRGB(0, 255, 0));
+  }
+  sysSetVariableString(sysvar::LightShow::ProgressMessage, displayMessage);
+  if(writeToWindow) { write("%s", displayMessage); }
+}

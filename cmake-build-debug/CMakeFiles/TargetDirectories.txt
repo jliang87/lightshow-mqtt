@@ -1,0 +1,10 @@
+/Users/mingjieliang/Downloads/MQTT-C/cmake-build-debug/CMakeFiles/install/strip.dir
+/Users/mingjieliang/Downloads/MQTT-C/cmake-build-debug/CMakeFiles/install.dir
+/Users/mingjieliang/Downloads/MQTT-C/cmake-build-debug/CMakeFiles/list_install_components.dir
+/Users/mingjieliang/Downloads/MQTT-C/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/Users/mingjieliang/Downloads/MQTT-C/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/mingjieliang/Downloads/MQTT-C/cmake-build-debug/CMakeFiles/simple_subscriber.dir
+/Users/mingjieliang/Downloads/MQTT-C/cmake-build-debug/CMakeFiles/reconnect_subscriber.dir
+/Users/mingjieliang/Downloads/MQTT-C/cmake-build-debug/CMakeFiles/install/local.dir
+/Users/mingjieliang/Downloads/MQTT-C/cmake-build-debug/CMakeFiles/simple_publisher.dir
+/Users/mingjieliang/Downloads/MQTT-C/cmake-build-debug/CMakeFiles/mqttc.dir
